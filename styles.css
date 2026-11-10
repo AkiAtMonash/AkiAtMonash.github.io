@@ -495,6 +495,12 @@ body.log-open #side-panel { transform: none; }
     border-radius: 12px;
     padding: 10px 12px;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+    /* 選択肢が多い質問（デッキ選択など）は帯の中をスクロールできるようにする。
+       これが無いと、下の方の選択肢が画面の外に出て選べなくなる */
+    max-height: calc(100dvh - 12px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
     display: none;
 }
 #prompt-bar.active { display: block; }
