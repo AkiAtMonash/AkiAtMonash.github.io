@@ -425,6 +425,8 @@ body.log-open #side-panel { transform: none; }
     .gauge-stack .card { transform: translateX(-50%) rotate(90deg) scale(0.68); }
     #prompt-card { grid-template-columns: 90px 1fr; }
     #prompt-card img { width: 90px; }
+    /* 手札を扇形にせず、まっすぐ一列に並べる（回転と上下の弧をなくす）。全部を見せる必要はないので重なりはそのまま */
+    #my-hand .card { rotate: 0deg; translate: 0; }
 }
 
 /* ===== 3DS版に寄せた操作と演出 ===== */
