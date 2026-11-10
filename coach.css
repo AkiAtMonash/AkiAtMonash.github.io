@@ -1,0 +1,276 @@
+/* コーチモード（?coach=1）でだけ効く。ふだんの対戦画面には出ない。 */
+
+/* ===================================================================
+   広い画面（1001px 以上）: 盤面を左70%、右30%を固定の列にする。
+   頭・相手の手札・質問・指摘・自分の手札を、すべてこの列の中に置く。
+   列が無いとき（狭い画面）は、この下の「スマホ」の見た目になる。
+   =================================================================== */
+html.coach-rail {
+    /* 盤面が70%になるので、カードの大きさもその幅で計算し直す。
+       頭と手札の帯が右の列へ移ったぶん、縦はほぼ全部を盤面に使える */
+    --cwb: clamp(36px, min(calc((70vw - 18px) / 5.75), calc((100dvh - 108px) / 7.05)), 160px);
+}
+body.coach-rail #app {
+    width: 70vw;
+    height: 100dvh;
+    max-width: none;
+    margin: 0;
+    padding: 4px 4px 6px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "game";
+}
+body.coach-rail #game-container { align-self: start; }
+
+#coach-rail {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 30vw;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 6px;
+    background: #0c0c10;
+    border-left: 2px solid var(--line);
+    overflow-y: auto;
+}
+#coach-rail > * { flex: 0 0 auto; }
+
+/* --- 頭（もどす・メニュー・指摘・いまのフェイズ） --- */
+body.coach-rail #header-bar {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 6px;
+    background: rgba(20, 20, 26, 0.9);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+}
+body.coach-rail #undo-slot { order: 1; }
+body.coach-rail #buttons { order: 2; flex: 1 1 auto; justify-content: flex-end; }
+body.coach-rail #buttons button,
+body.coach-rail #undo-slot button {
+    flex: 1 1 0;
+    min-height: 38px;
+    padding: 4px 6px;
+    font-size: 13px;
+}
+/* フェイズはボタンの下に1行で出す */
+body.coach-rail #phase-indicator {
+    order: 3;
+    flex: 1 0 100%;
+    font-size: 13px;
+    line-height: 1.35;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+}
+body.coach-rail #buttons #coach-fab { position: static; }
+body.coach-rail #buttons #coach-fab,
+body.coach-rail #buttons .peek-back { flex: 0 0 auto; }
+
+/* --- 手札（列の中で、重ねて全部見えるようにする） --- */
+body.coach-rail #opponent-hand,
+body.coach-rail #my-hand {
+    position: static;
+    left: auto;
+    right: auto;
+    top: auto;
+    bottom: auto;
+    width: 100%;
+    padding: 6px 8px;
+    background: rgba(20, 20, 26, 0.9);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: none;
+    pointer-events: auto;
+}
+body.coach-rail #my-hand { margin-top: auto; }   /* 自分の手札は列の一番下に置く */
+body.coach-rail .hand-label {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 12px;
+    color: #ffd166;
+}
+body.coach-rail #my-hand .hand-label { color: #00fff0; }
+body.coach-rail .hand-row { width: 100%; min-width: 0; justify-content: flex-start; }
+body.coach-rail #opponent-hand .card,
+body.coach-rail #my-hand .card {
+    --cw: clamp(70px, calc(var(--cwb) * 0.86), 120px);
+    flex: 0 0 auto;
+    margin-left: 0;
+    rotate: none;
+    translate: none;
+}
+/* 列の内側の幅に収まらないぶんだけ重ねる（100% は手札の行の幅）。
+   styles.css の #my-hand .card などに負けないよう、id で指定する */
+body.coach-rail #opponent-hand .hand-row .card:not(:first-child),
+body.coach-rail #my-hand .hand-row .card:not(:first-child) {
+    margin-left: calc(-1 * max(calc(var(--cw) * 0.18), (var(--n) * var(--cw) - 100%) / (var(--n) - 1)));
+}
+@media (hover: hover) {
+    body.coach-rail #my-hand .card:hover,
+    body.coach-rail #my-hand .card.selected,
+    body.coach-rail #my-hand .card.targetable { translate: none; }
+}
+
+/* --- 質問（対抗など）。盤面に重ねず、列の中で出す --- */
+body.coach-rail #prompt-bar {
+    position: static;
+    left: auto;
+    top: auto;
+    transform: none;
+    width: auto;
+    margin: 0;
+}
+body.coach-rail .prompt-tools { display: none; }   /* 盤面も手札も、この列でいつも見えている */
+
+/* カードの詳細は、列を避けて盤面側に出す */
+body.coach-rail #preview { right: auto; left: 8px; }
+/* 「メニュー」の引き出しは列の左から出す。閉じているときは画面の外へ逃がす
+   （列のぶん右端がずれるので、translate だけでは列の上に残ってしまう）。
+   ログはコーチ中は出さない */
+body.coach-rail #side-panel { right: 30vw; transform: translateX(calc(100% + 30vw)); }
+body.coach-rail.log-open #side-panel { transform: none; }
+body.coach-rail #log { display: none; }
+
+/* ===================================================================
+   狭い画面（スマホ）: 今まで通り、相手の手札を画面上端の帯に出す。
+   coach.js は 1000px 以下では列を作らない。
+   =================================================================== */
+@media (max-width: 1000px) {
+    body.coach #opponent-hand .hand-label::after {
+        content: " ・コーチ（手札を公開中）";
+        color: #ffd166;
+        font-size: 11px;
+    }
+    /* コーチ中は相手の手札も、自分の手札と同じ大きさで見せる。画面の上端に伏せて置き、
+       マウスを乗せたカードだけ下りてくる。タップするとアップで見られる（相手の向きのまま） */
+    html.coach { --cwb: clamp(36px, min(calc((100vw - 24px) / 5.75), calc((100dvh - 210px) / 7.8)), 150px); }
+    body.coach #app { padding-top: calc(var(--hpeek) + 6px); }
+    body.coach #side-panel { top: calc(var(--hpeek) + 48px); }
+    body.coach #opponent-hand {
+        position: fixed;
+        left: 0;
+        right: 0;
+        top: 0;
+        z-index: 50;
+        display: flex;
+        justify-content: center;
+        padding: 0 8px;
+        background: none;
+        border: none;
+        box-shadow: none;
+        pointer-events: none;
+    }
+    body.coach #opponent-hand .hand-row {
+        justify-content: center;
+        translate: 0 calc(-1 * (var(--hch) - var(--hpeek)));
+    }
+    body.coach #opponent-hand .card {
+        --cw: calc(var(--cwb) * 1.15);
+        margin-left: calc(-1 * max(var(--cw) * 0.16, (var(--n) * var(--cw) - 100vw + 56px) / (var(--n) - 1)));
+        transition: translate 0.15s ease;
+        pointer-events: auto;
+    }
+    body.coach #opponent-hand .card:first-child { margin-left: 0; }
+}
+@media (max-width: 900px) {
+    html.coach { --cwb: clamp(34px, min(calc((100vw - 38px) / 4.95), calc((100dvh - 200px) / 8)), 110px); }
+}
+@media (hover: hover) and (max-width: 1000px) {
+    body.coach #opponent-hand .card:hover { translate: 0 calc(var(--hch) - var(--hpeek)); z-index: 3; }
+}
+
+/* ===== 指摘ボタンと入力欄（列のあるなしに関係なく同じ見た目） ===== */
+#coach-fab {
+    position: fixed;
+    top: 44px;
+    right: 8px;
+    z-index: 60;
+    padding: 6px 10px;
+    font-size: 12px;
+    border-radius: 999px;
+    border: 1px solid #ffd166;
+    background: #2b2413;
+    color: #ffd166;
+    cursor: pointer;
+}
+#coach-fab[data-n]:not([data-n="0"])::after {
+    content: attr(data-n);
+    margin-left: 4px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: #ffd166;
+    color: #2b2413;
+    font-weight: bold;
+}
+/* ヘッダーの中に置くときは、ほかのボタンと同じ見た目にする（盤面を隠さない） */
+#buttons #coach-fab {
+    position: static;
+    padding: 4px 9px;
+    font-size: 12px;
+    border-radius: 6px;
+}
+/* パスや対抗の確認が出ている間も、その場で指摘できるようにボタンを手前に出す。
+   列のある画面では、質問が列の中に出るのでボタンは動かさない */
+body:has(#prompt.active) #buttons #coach-fab {
+    position: fixed;
+    top: 44px;
+    right: 8px;
+    z-index: 5150;
+}
+body.coach-rail:has(#prompt.active) #buttons #coach-fab { position: static; }
+
+#coach-panel {
+    position: fixed;
+    top: 78px;
+    right: 8px;
+    z-index: 61;
+    width: min(340px, 92vw);
+    padding: 10px;
+    border-radius: 10px;
+    border: 1px solid #ffd166;
+    background: #1b1a17;
+    color: #eee;
+    font-size: 12px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, .5);
+}
+body.coach-rail #coach-panel {
+    position: static;
+    width: auto;
+    padding: 6px 8px;
+    z-index: 1;
+    border-color: #6b5a1f;
+    box-shadow: none;
+}
+#coach-panel:not([hidden]) { z-index: 5200; }
+#coach-panel[hidden] { display: none; }
+#coach-panel label { display: block; margin: 6px 0 2px; color: #bbb; }
+#coach-panel textarea, #coach-panel select {
+    width: 100%;
+    box-sizing: border-box;
+    background: #111;
+    color: #eee;
+    border: 1px solid #444;
+    border-radius: 6px;
+    padding: 6px;
+    font-size: 12px;
+}
+#coach-panel textarea { resize: vertical; min-height: 44px; }
+body.coach-rail #coach-panel textarea { resize: none; min-height: 38px; }
+#coach-panel .row { display: flex; gap: 6px; margin-top: 8px; }
+#coach-panel button {
+    flex: 1;
+    padding: 7px;
+    border-radius: 6px;
+    border: 1px solid #666;
+    background: #2a2a2a;
+    color: #eee;
+    cursor: pointer;
+}
+#coach-panel button.primary { border-color: #ffd166; background: #ffd166; color: #1b1a17; font-weight: bold; }
+#coach-panel .note { margin-top: 6px; min-height: 15px; color: #9ad; font-size: 11px; }

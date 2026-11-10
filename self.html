@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>バディファイト（自分で両方）</title>
+    <script>
+        // この画面を枠の中に開こうとしたら、枠の外（タブ全体）で開き直す。
+        // こうしないと、左右の画面の中にまた左右の画面が入って、どんどん細かくなる。
+        try { if (window.top !== window.self) window.top.location = location.href; } catch (e) {}
+    </script>
+    <style>
+        html, body { height: 100%; }
+        body {
+            margin: 0;
+            background: #121214;
+            color: #e8e8ee;
+            font-family: 'Rajdhani', 'Hiragino Sans', 'Yu Gothic UI', 'Meiryo', sans-serif;
+            font-weight: 600;
+            display: flex;
+            flex-direction: column;
+        }
+        #boards { flex: 1 1 auto; min-height: 0; display: flex; gap: 6px; padding: 6px; }
+        #boards > section { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
+        #boards .seat { font-size: 12px; padding: 0 0 2px 4px; color: #8a8a96; }
+        #boards iframe { flex: 1 1 auto; width: 100%; min-height: 0; border: 0; border-radius: 10px; background: #121214; }
+    </style>
+    <link rel="manifest" href="/manifest.json">
+    <script src="/loader.js"></script>
+    <script src="/image-list.js"></script>
+    <script src="/engine.js"></script>
+    <script src="/host.js"></script>
+</head>
+<body>
+    <div id="boards">
+        <section><span class="seat">1P</span><iframe src="/?seat=0" title="1Pの画面"></iframe></section>
+        <section><span class="seat">2P</span><iframe src="/?seat=1" title="2Pの画面"></iframe></section>
+    </div>
+    <script>
+        if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(function(){});
+    </script>
+</body>
+</html>
