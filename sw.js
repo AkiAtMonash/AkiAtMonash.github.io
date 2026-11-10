@@ -1,4 +1,4 @@
-var CACHE = 'buddyfight-v2';
+var CACHE = 'buddyfight-v3';
 var CORE = ['/', '/self.html', '/index.html', '/game.js', '/styles.css', '/coach.css', '/coach.js', '/loader.js', '/image-list.js', '/engine.js', '/host.js', '/socket-shim.js', '/manifest.json'];
 // 新しい版を入れたらすぐ切り替える（古いキャッシュを抱えたままだと、直した CSS が反映されない）
 self.addEventListener('install', function (e) {

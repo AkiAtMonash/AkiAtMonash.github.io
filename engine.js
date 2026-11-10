@@ -502,7 +502,7 @@ function createGame(onChange = () => {}, {castDelay = 1500, botSeat = -1, state 
   const rkSmall = p => monsters(p).filter(RK);
   def('BT05/0046', {name: '煉獄騎士団団長 ディミオスソード・ドラゴン', type: 'monster', size: 2, pow: 6000, crit: 2, def: 1000, attr: ['武装騎竜', '白竜'],
     text: ['■【対抗】【起動】君のターン中、君の場のこのカード以外のカード名に「煉獄騎士団」を含むモンスター１枚を破壊する。破壊したら、このカードをスタンドする。'],
-    actInAttack: true,
+    actInAttack: true, counterAct: true,
     acts: (p, c) => monsters(p).some(x => x !== c && RK(x)) ? [{label: '【起動】煉獄騎士団を破壊してスタンド', value: async () => {
       const t = await pick(p, '破壊する「煉獄騎士団」を選ぶ', monsters(p).filter(x => x !== c && RK(x)));
       if (!t) return;
@@ -512,7 +512,7 @@ function createGame(onChange = () => {}, {castDelay = 1500, botSeat = -1, state 
   def('BT05/0010', {name: '煉獄騎士団 ガイラムランス・ドラゴン', type: 'monster', size: 2, pow: 6000, crit: 2, def: 2000, attr: ['武装騎竜', '闇竜'],
     sizeDown: p => (p.buddyName || '').includes('煉獄騎士団') ? 1 : 0,
     text: ['■君のバディモンスターがカード名に「煉獄騎士団」を含むカードなら、このカードのサイズを１減らす！！！', '■【対抗】【起動】君のターン中、君の場のこのカード以外のカード名に「煉獄騎士団」を含むモンスター１枚を破壊する。破壊したら、そのターン中、このカードの打撃力を＋１！この能力は１ターンに１回だけ使える。'],
-    actInAttack: true,
+    actInAttack: true, counterAct: true,
     acts: (p, c) => p.used[c.id] !== G.turnNo && monsters(p).some(x => x !== c && RK(x)) ? [{label: '【起動】煉獄騎士団を破壊して打撃力＋１', value: async () => {
       const t = await pick(p, '破壊する「煉獄騎士団」を選ぶ', monsters(p).filter(x => x !== c && RK(x)));
       if (!t) return;
@@ -1193,6 +1193,10 @@ function createGame(onChange = () => {}, {castDelay = 1500, botSeat = -1, state 
     for (const c of q.hand) if (c.d.counter && canUse(q, c) && !seen.has(c.id)) { seen.add(c.id); opts.push({label: c.d.name, value: () => useCard(q, c), target: {uid: c.uid}}); }
     for (const c of q.hand) if (c.d.handCounter && c.d.handCounter.can(q, c) && !seen.has(c.id)) { seen.add(c.id); opts.push({label: `${c.d.name}：${c.d.handCounter.label}`, value: () => useAbility(q, c, c.d.handCounter), target: {uid: c.uid}}); }
     for (const c of fieldCards(q)) if (c.d.fieldCounter && c.d.fieldCounter.can(q, c)) opts.push({label: `${c.d.name}：${c.d.fieldCounter.label}`, value: () => useAbility(q, c, c.d.fieldCounter), target: {uid: c.uid}});
+    // 場のモンスターの【対抗】【起動】（ディミオスソードの「破壊してスタンド」など）。カードに「君のターン中」とあるので、その人のターンだけ出す。
+    // ここは【対抗】の手順の中なので、相手に【対抗】を返させない（trigger ではなく ability を直接呼ぶ）
+    for (const c of fieldCards(q)) if (G.turn === q.i && c.d.counterAct && c.d.acts)
+      for (const a of c.d.acts(q, c)) opts.push({label: `${c.d.name}：${a.label}`, value: () => ability(q, c, a.value, a.text || abilityText(c, /【起動】/)), target: {uid: c.uid}});
     // 【設置】したカードのソウルから使う魔法・必殺技（忍び巻物の《忍法》、超・絶命陣の《秘剣》など）
     for (const s of q.sets) if (s.d.soulUse) for (const c of s.soul)
       if (c.d.counter && (c.d.type === 'spell' || c.d.type === 'impact') && c.d.attr.includes(s.d.soulUse) && canUse(q, c)) {
