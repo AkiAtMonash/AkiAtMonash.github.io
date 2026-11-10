@@ -8,12 +8,13 @@ const AN = {left: 'レフト', center: 'センター', right: 'ライト', item:
 // 保存していない画像は送らない（画面では文字だけのカードになる）。あとから足した画像もサーバーを止めずに使えるよう、無いことは覚えない
 const fs = require('fs'), path = require('path');
 const imgSeen = new Set();
-// カード番号から公式サイトの画像のファイル名：TD01/0001 → td_01_0001.png、PR/0053 → pr_0053.png
+// カード番号から公式サイトの画像のファイル名：TD01/0001 → td_01_0001.webp、PR/0053 → pr_0053.webp
+// 配信サイトでは jp の画像を WebP に変換して置いている（90MB→10MB にして転送とデプロイを軽くするため）
 const imgFile = id => {
   const s = id.toLowerCase(), m = s.match(/^([a-z]+)(?:-([a-z]+))?(\d*)\/(\d{4})$/);
-  if (!m) return `${s.replace('/', '_')}.png`;
+  if (!m) return `${s.replace('/', '_')}.webp`;
   const [, a, b, n, k] = m;
-  return `${a}${b || ''}${n ? `_${n}` : ''}_${k}.png`;
+  return `${a}${b || ''}${n ? `_${n}` : ''}_${k}.webp`;
 };
 const OFFICIAL_IMG = id => {
   const f = imgFile(id);
