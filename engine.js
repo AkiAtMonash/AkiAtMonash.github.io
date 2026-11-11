@@ -553,9 +553,11 @@ function createGame(onChange = () => {}, {castDelay = 1500, botSeat = -1, state 
     text: ['■【使用コスト】ゲージ１を払う。', '■【対抗】場のサイズ２以下のモンスター１枚を破壊する！！'],
     can: () => allMonsters().some(c => sizeOf(c) <= 2),
     play: async p => destroy(await pick(p, '破壊するモンスターを選ぶ', allMonsters().filter(c => sizeOf(c) <= 2)))});
-  def('BT05/0082', {name: '地獄の炎も、生ぬるい', type: 'spell', counter: true, attr: ['闇竜'],
+  // 地獄の炎も、生ぬるいは「相手のターン中、君がダメージを受けた時に使える」。その一瞬だけ can を通す（damage() が立てる）
+  let damageTiming = null;
+  def('BT05/0082', {name: '地獄の炎も、生ぬるい', type: 'spell', counter: true, attr: ['闇竜'], dmgTiming: true,
     text: ['■相手のターン中、君がダメージを受けた時に使える。', '■【対抗】カード１枚を引く。君の場にカード名に「煉獄騎士団」を含むモンスターがいるなら、さらにカード１枚を引く。'],
-    can: p => G.turn !== p.i,
+    can: p => damageTiming === p,
     play: async p => { draw(p, 1); if (monsters(p).some(RK)) draw(p, 1); }});
   def('BT05/0076', {name: '煉獄の炎をその身に宿し', type: 'spell', counter: true, attr: ['闇竜'], cost: {gauge: 2},
     text: ['■相手のターンの攻撃中に使える。', '■【使用コスト】ゲージ２を払う。', '■【対抗】君の場のカード名に「煉獄騎士団」を含むモンスター１枚を破壊する。破壊したら、その攻撃を無効化し、その破壊したカードの打撃力の数値分、相手にダメージ！！'],
@@ -571,10 +573,10 @@ function createGame(onChange = () => {}, {castDelay = 1500, botSeat = -1, state 
   def('BT05/0052', {name: 'その身を砕き、我を支えよ', type: 'spell', set: true, attr: ['闇竜'], reviveSet: true,
     text: ['■『設置』（このカードは場に置いて使う）', '■君の場のカード名に「煉獄騎士団」を含むモンスターが効果で破壊された時、君のデッキの上から１枚をゲージに置く。', '■君のライフが０になるなら、このカードをドロップゾーンに置き、君のデッキの上から１枚をドロップゾーンに置く。そのカードが魔法なら、君のライフは２になる！', '■「その身を砕き、我を支えよ」は君の場に１枚だけ『設置』できる。'],
     can: p => !p.sets.some(x => x.id === 'BT05/0052'),
-    onTKDestroyed: true});
+    onTKDestroyed: (p, s, c) => { chargeTop(p, 1); log(`${s.d.name}：${c.d.name} が効果で破壊されたのでゲージ＋１`); }});
   def('BT05/0085', {name: '煉獄剣 フェイタル', type: 'item', pow: 4000, crit: 2, attr: ['闇竜', '武器'], cost: {gauge: 1},
     text: ['■【装備コスト】ゲージ１を払う。', '■君の場のモンスターが破壊された時、そのターン中、このカードを打撃力＋１する。この能力は１ターンに１回だけ発動する。'],
-    onMonsterDestroyed: true});
+    onMonsterDestroyed: (p, it) => { it.tm.crit = (it.tm.crit || 0) + 1; log(`${it.d.name}：打撃力＋１（このターン）`); }});
   def('BT05/0053', {name: 'ディストーション・パニッシャー!!', type: 'impact', counter: true, attr: ['闇竜'], cost: {gauge: 4},
     text: ['■【使用コスト】ゲージ４を払う。', '■相手のライフが４以下で、君のセンターと相手のセンターにモンスターがいないなら次の２つから１つを選んで使う。', '・相手にダメージ４！！', '・【対抗】“カウンターファイナル！！”相手のファイナルフェイズ中に、相手が必殺技を使った時に使える。相手にダメージ４！！'],
     can: p => (G.turn === p.i && G.phase === 'final' && foe(p).life <= 4 && !p.field.center && !foe(p).field.center)
@@ -731,7 +733,8 @@ function createGame(onChange = () => {}, {castDelay = 1500, botSeat = -1, state 
       const z = zones.find(z => z.includes(x));
       remove(z, x); c.soul.push(x);
       if (z === p.deck) shuffle(p.deck);
-      log(`${p.name}：${c.d.name}のソウルに ${x.d.name} を置いた`);
+      // ソウルは裏向きなので、相手に見える記録にはカード名を出さない（持ち主はアップの「ソウルを見る」で確かめられる）
+      log(`${p.name}：${c.d.name}のソウルに１枚置いた`);
     }});
   def('BT02/0008', {name: '秘剣 星砕き', type: 'impact', counter: true, attr: ['秘剣'], cost: {gauge: 3}, onlyFromSoul: true,
     text: ['■【使用コスト】ゲージ３を払う。', '■相手が魔法を使った時、このカードが「秘剣 絶命陣」のソウルにあるなら使える。(このカードは手札から使えない)', '■【対抗】相手にダメージ３！相手が使ったその魔法を無効化する。'],
@@ -1014,11 +1017,12 @@ function createGame(onChange = () => {}, {castDelay = 1500, botSeat = -1, state 
   // ===== 基本処理 =====
   function draw(p, n) { for (let k = 0; k < n && p.deck.length; k++) p.hand.push(p.deck.shift()); check(); }
   // fixed: 減らないダメージ（必殺技）。チェレックス！で0にできない
+  // 戻り値は実際にダメージを与えたか（０に減らした時は false。「ダメージを与えた時」の能力は発動しない）
   async function damage(p, n, fixed) {
     // 黒竜の盾は使えても減らないダメージは軽減できない。構えた分はそのダメージで使い切る（後のダメージに残さない）
     if (p.damageShield) {
       p.damageShield = false;
-      if (!fixed) { log(`${p.name}：黒竜の盾でダメージを0にした`); heal(p, 1); return; }
+      if (!fixed) { log(`${p.name}：黒竜の盾でダメージを0にした`); heal(p, 1); return false; }
     }
     // ダメージを受ける時、黒竜の盾を手札から使える。星砕きのように【対抗】の解決中に受けるダメージにも使える
     const shield = !fixed && !p.field.center && p.hand.find(c => c.d.shieldDamage);
@@ -1026,22 +1030,55 @@ function createGame(onChange = () => {}, {castDelay = 1500, botSeat = -1, state 
       const use = await ask(p, `黒竜の盾を使う？（${n}ダメージを0にして、ライフ＋1）`,
         [{label: '使う', value: true}, {label: '使わない', value: false}], false, shield);
       if (use) {
-        remove(p.hand, shield); p.drop.push(shield);
-        log(`${p.name}：黒竜の盾でダメージを0にした`); heal(p, 1); return;
+        // 魔法をキャストしたので「キャスト」の帯を出す（通常のキャストと同じ見せ方）
+        await castBand(p, shield, () => {
+          remove(p.hand, shield); p.drop.push(shield);
+          log(`${p.name}：黒竜の盾でダメージを0にした`); heal(p, 1);
+        });
+        return false;
       }
     }
-    if (!fixed && p.chillax === G.turnNo) { p.chillax = null; log(`${p.name}：チェレックス！でダメージを0にした`); heal(p, 1); return; }
+    if (!fixed && p.chillax === G.turnNo) { p.chillax = null; log(`${p.name}：チェレックス！でダメージを0にした`); heal(p, 1); return false; }
     p.life = Math.max(0, p.life - n); log(`${p.name} に ${n} ダメージ（ライフ ${p.life}）`); fx('damage', String(n), {to: p.i});
-    const it = p.field.item;
-    if (p.life === 0 && it && it.d.revive) {
-      // カードに書かれた能力なので、ほかの自動能力と同じく「能力発動」を出してから解決する
-      await ability(p, it, () => {
-        toDrop(it); log(`${it.d.name} の奇跡の復活`);
-        const top = p.deck.shift();
-        if (top) { p.drop.push(top); log(`${top.d.name} を公開して捨てた`); if (top.d.type === 'spell') { p.life = 3; log(`${p.name} のライフは3になった！`); } }
-      }, abilityText(it, /復活/));
+    // ライフが０になるなら発動する復活能力。アイテムの「奇跡の復活」→【設置】の「その身を砕き、我を支えよ」の順
+    if (p.life === 0) {
+      const it = p.field.item;
+      if (it && it.d.revive) {
+        // カードに書かれた能力なので、ほかの自動能力と同じく「能力発動」を出してから解決する
+        await ability(p, it, () => {
+          toDrop(it); log(`${it.d.name} の奇跡の復活`);
+          const top = p.deck.shift();
+          if (top) { p.drop.push(top); log(`${top.d.name} を公開して捨てた`); if (top.d.type === 'spell') { p.life = 3; log(`${p.name} のライフは3になった！`); } }
+        }, abilityText(it, /復活/));
+      }
+      if (p.life === 0) {
+        const s = p.sets.find(x => x.d.reviveSet);
+        if (s) {
+          // カードに書かれた能力なので、ほかの自動能力と同じく「能力発動」を出してから解決する
+          await ability(p, s, () => {
+            remove(p.sets, s); p.drop.push(s); log(`${s.d.name} をドロップに置いた`);
+            const top = p.deck.shift();
+            if (top) { p.drop.push(top); log(`${top.d.name} を公開して捨てた`); if (top.d.type === 'spell') { p.life = 2; log(`${p.name} のライフは2になった！`); } }
+          }, abilityText(s, /ライフが０になるなら/));
+        }
+      }
     }
     check();
+    // ダメージを受けた時が使えるタイミングの【対抗】。相手のターン中にダメージを受けたら、ライフを減らしたあと本人に聞く
+    if (!G.over && G.turn !== p.i) {
+      const prev = damageTiming;
+      damageTiming = p;
+      try {
+        for (const c of [...p.hand]) {
+          if (!c.d.dmgTiming || !canUse(p, c)) continue;
+          const use = await ask(p, `${c.d.name}を使う？（ダメージを受けた時）`,
+            [{label: '使う', value: true}, {label: '使わない', value: false}], false, c);
+          if (use) await useCard(p, c);
+          if (G.over) break;
+        }
+      } finally { damageTiming = prev; }
+    }
+    return true;
   }
   function heal(p, n) { p.life += n; log(`${p.name} のライフ +${n}（ライフ ${p.life}）`); fx('heal', `+${n}`, {to: p.i}); }
   // ★ルール処理★（詳細ルール ver.2.01）：ライフが0以下かデッキが0枚のファイターは負け。ダメージ・ドロー・質問の前に見る
@@ -1049,16 +1086,6 @@ function createGame(onChange = () => {}, {castDelay = 1500, botSeat = -1, state 
     if (G.over) return true;
     if (G.phase === 'deck') return false;
     for (const p of G.p) {
-      // 「その身を砕き、我を支えよ」：ライフが0になるなら、この設置をドロップに置いてデッキの上から1枚を捨て、魔法ならライフ2
-      if (p.life <= 0 && !p.lost) {
-        const s = p.sets.find(x => x.d.reviveSet);
-        if (s) {
-          remove(p.sets, s); p.drop.push(s);
-          log(`${s.d.name} をドロップに置いた`);
-          const top = p.deck.shift();
-          if (top) { p.drop.push(top); log(`${top.d.name} を公開して捨てた`); if (top.d.type === 'spell') { p.life = 2; log(`${p.name} のライフは2になった！`); } }
-        }
-      }
       if (p.lost || p.life <= 0 || !p.deck.length) {
         G.over = foe(p); log(`${foe(p).name} の勝ち！`); fx('win', '勝利', {to: foe(p).i});
         pending[0] = pending[1] = null;  // 出ていた質問は取り下げる
@@ -1085,13 +1112,11 @@ function createGame(onChange = () => {}, {castDelay = 1500, botSeat = -1, state 
     const destroyedAbilities = async () => {
       if (c.d.type !== 'monster') return;
       if (c.d.onDestroyed && !ctx.by && G.phase === 'attack') await trigger(p, c, () => c.d.onDestroyed(p, c), abilityText(c, /破壊された時/));
-      if (!ctx.by && RK(c)) for (const s of [...p.sets]) if (s.d.onTKDestroyed) {
-        chargeTop(p, 1); log(`${s.d.name}：${c.d.name} が効果で破壊されたのでゲージ＋１`);
-      }
+      if (!ctx.by && RK(c)) for (const s of [...p.sets]) if (s.d.onTKDestroyed) await setAbility(p, s, 'onTKDestroyed', /破壊された時/, c);
       const it = p.field.item;
       if (it && it.d.onMonsterDestroyed && p.used[it.id] !== G.turnNo) {
-        p.used[it.id] = G.turnNo; it.tm.crit = (it.tm.crit || 0) + 1;
-        log(`${it.d.name}：打撃力＋１（このターン）`);
+        p.used[it.id] = G.turnNo;
+        await trigger(p, it, () => it.d.onMonsterDestroyed(p, it), abilityText(it, /破壊された時/));
       }
     };
     if (c.tm.stay) { const h = c.tm.stay.heal; delete c.tm.stay; log(`${c.d.name} は場に残った`); if (h) heal(p, h); await killed(); return true; }
@@ -1300,6 +1325,17 @@ function createGame(onChange = () => {}, {castDelay = 1500, botSeat = -1, state 
   const setAbility = (p, s, key, re, ...args) => trigger(p, s, async () => { if (p.sets.includes(s)) await s.d[key](p, s, ...args); }, abilityText(s, re));
   // バトル中に起きた「ダメージを与えた時」「破壊された時」などの能力は、バトルの後（③3.4.）にまとめて解決する
   async function later(p, fn) { if (G.battle) G.battle.after.push({p, fn}); else await fn(); }
+  // カードを使ったときの帯（キャスト・必殺技）を出してから効果を解決する。
+  // 通常の使用（useCard）と、ダメージを受ける時に手札から使う盾（damage の中）で共有する
+  async function castBand(p, c, fn) {
+    G.casting.push({c, p}); onChange();
+    await sleep(castDelay);
+    try { await fn(); } finally {
+      onChange();
+      await sleep(castDelay / 2);
+      remove(G.casting, G.casting.find(x => x.c === c && !x.ability));
+    }
+  }
   async function useCard(p, c, from = p.hand) {
     const cost = costOf(p, c), g = await chooseGauge(p, cost, c);
     if (!g) return false;
@@ -1373,7 +1409,9 @@ function createGame(onChange = () => {}, {castDelay = 1500, botSeat = -1, state 
     const live = atk.filter(areaOf);
     // 相手にダメージを与えた時の能力（鉄拳 ドラゴナックル、ガラスの魔術師など）は、バトルの後に解決する
     const hit = async (n, cs) => {
-      await damage(o, n, !!(G.battle && G.battle.unreduce));
+      // ０に減らされたダメージは「与えた」ことにならないので、その時は「ダメージを与えた時」の能力を発動しない
+      const dealt = await damage(o, n, !!(G.battle && G.battle.unreduce));
+      if (!dealt) return;
       for (const c of cs) if (c.d.onHit && areaOf(c)) await later(p, () => trigger(p, c, () => c.d.onHit(p, c), abilityText(c, /ダメージを与えた時/)));
     };
     if (G.battle.nullified) log('攻撃は無効化された');
@@ -1403,7 +1441,7 @@ function createGame(onChange = () => {}, {castDelay = 1500, botSeat = -1, state 
     if (!G.over) await counterTiming('バトルの後');
     // バトル終了時に手札に戻る／デッキの下に置く（カードに書かれた能力なので、ほかの自動能力と同じく「能力発動」を出して【対抗】のタイミングを取る）
     for (const c of atk.filter(areaOf)) {
-      if (c.d.bounce) { toZone(c, p.hand); log(`${c.d.name} を手札に戻した`); }
+      if (c.d.bounce) await trigger(p, c, async () => { toZone(c, p.hand); log(`${c.d.name} を手札に戻した`); }, abilityText(c, /バトル終了時/));
       else if (c.d.battleEnd) await trigger(p, c, async () => { toZone(c, p.deck); chargeTop(p, 1); log(`${c.d.name} をデッキの下に置いた`); }, abilityText(c, /バトル終了時/));
     }
     // ③4.1. 『２回攻撃』『３回攻撃』：攻撃した後、1ターンに1回（2回）スタンドする

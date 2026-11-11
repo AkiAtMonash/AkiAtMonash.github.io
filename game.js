@@ -161,15 +161,8 @@ function cardEl(c, {onTap, noZoom, showKw} = {}) {
         const so = document.createElement('span');
         so.className = 'card-soul';
         so.textContent = `ソウル${c.soul}`;
-        // 中身を見られるソウルは、いつでも帯を押して一覧を開ける（表向きのソウルと、自分の設置カード）
-        if (c.soulViews && c.soulViews.length) {
-            so.classList.add('viewable');
-            so.title = 'ソウルの中身を見る';
-            so.onclick = ev => {
-                ev.stopPropagation();  // カード本体のタップ（攻撃の選択・アップ）にはしない
-                showList(`${c.name}のソウル`, c.soulViews);
-            };
-        }
+        // 中身を見るのはカードのアップ（ポップアップ）の「ソウルを見る」から。
+        // 帯そのものは押せるようにしない（モンスターを選ぶタップとぶつかるため）
         e.append(so);
     }
     e.onmouseenter = () => hoverPreview(c, e);
@@ -359,19 +352,21 @@ function side(p, el, mine) {
     const lifeBox = document.createElement('div');
     lifeBox.className = 'life-display';
     lifeBox.textContent = p.life;
-    // フラッグとアイテムは同じ置き場。攻撃するカードを選んでいて相手のセンターが空いていれば、相手のフラッグをタップでファイターを攻撃
+    // フラッグとアイテムは同じ置き場に重なっている。攻撃するカードを選んでいて相手のセンターが空いていれば、
+    // フラッグでもアイテムでも、この置き場を押したらファイターを攻撃する（フラッグの細いところを狙わなくてよい）
     const fighterTarget = !mine && S.turn === S.me && S.phase === 'attack' && S.sel.length > 0 && !f.center;
-    const flagEl = cardEl(p.flagCard, {onTap: () => fighterTarget && confirmAttack(`${p.name}（ファイター）`, () => act({t: 'fighter'})), noZoom: fighterTarget});
+    const flagEl = cardEl(p.flagCard);
     const attacking = S.turn === S.me && S.phase === 'attack' && S.over === null;  // 攻撃の選択中は、場のカードのタップは選択に使う
     // 相手のモンスターをタップして攻撃するときは、押し間違えないよう「〇〇にアタックする？」を確かめる
     const attackTarget = attacking && !mine && S.sel.length > 0;
     const fieldOpts = {onTap: attackTarget ? c => confirmAttack(c.name, () => tap(c)) : tap, noZoom: attacking};
-    flagEl.classList.add('flag-card');
+    // アイテムは攻撃先に選べないので、アイテムを押して「アタックする？」は出さない
+    const itemOpts = {...fieldOpts, onTap: tap};
     const tiles = {
         left: tile('left monster-zone', 'レフト', f.left && placed(f.left, fieldOpts)),
         center: tile('center monster-zone', 'センター', f.center && placed(f.center, fieldOpts)),
         right: tile('right monster-zone', 'ライト', f.right && placed(f.right, fieldOpts)),
-        flag: tile(`flag${fighterTarget ? ' target' : ''}`, 'フラッグ／アイテム', flagStack(flagEl, f.item && placed(f.item, fieldOpts))),
+        flag: tile(`flag${fighterTarget ? ' target' : ''}`, 'フラッグ／アイテム', flagStack(flagEl, f.item && placed(f.item, itemOpts))),
         set: tile('set', '設置', setRow(p.sets, {onTap: tap, noZoom: attacking})),
         buddy: tile('buddy', 'バディ', cardEl({...p.buddy, rest: p.buddyCalled})),  // バディコールしたら横向きにする
         gauge: tile('gauge', 'ゲージ', [gaugeStack(p.gauge, p.i), counter(p.gauge)]),
@@ -382,6 +377,11 @@ function side(p, el, mine) {
     };
     tiles.drop.onclick = () => p.drop.length && showList(`${p.name} のドロップ`, p.drop);
     tiles.life.dataset.p = p.i;
+    // ファイターを攻撃できるときは、置き場のどこを押しても（フラッグ・アイテム・空いているところ）ファイターを攻撃する
+    if (fighterTarget) tiles.flag.addEventListener('click', e => {
+        e.stopPropagation();
+        confirmAttack(`${p.name}（ファイター）`, () => act({t: 'fighter'}));
+    }, true);
     // コールするエリアを選ぶときは、出せる置き場を光らせ、置き場をタップで決める
     for (const a of ['left', 'center', 'right']) {
         const k = areaKey(p.i, a);
@@ -416,6 +416,7 @@ function hand(el, p, mine) {
 function showPrompt(pr) {
     const bar = $('prompt-bar');
     if (bar.dataset.id === String(pr.id)) return;
+    soulListOpen = false;   // 新しい質問が来たら、ソウル一覧は閉じている
     if (peeking) setPeeking(false);  // 新しい質問が来たら、まず帯を出して選択肢を見せる
     bar.dataset.id = pr.id;
     if (pr.cards && pr.cards.some(Boolean)) return showCardChoice(pr);
@@ -460,11 +461,23 @@ function showPrompt(pr) {
 // ===== カードのアップ =====
 // カードの選択肢（コール・キャスト・チャージなど）は、アップにしたカードの下に並べる。取り消しは「戻る」と表示する
 let zoomCard = null;
+let soulListOpen = false;   // ソウル一覧を出している間は、質問のカードのアップを閉じておく
 const zoomPrompt = () => S.prompt && S.prompt.card && !S.prompt.targets.some(Boolean) ? S.prompt : null;
 function openZoom(c) { zoomCard = c; $('zoom').dataset.key = ''; renderZoom(); }
 function closeZoom() { zoomCard = null; renderZoom(); }
+// 質問で送られてくるカードにはソウルの中身が付いていない。盤面の同じカード（uid）から中身を借りる
+function withSoul(c) {    if (!c || c.soulViews || !c.soul) return c;
+    for (const p of S.players) {
+        for (const k of ['left', 'center', 'right', 'item']) {
+            const f = p.field[k];
+            if (f && f.uid === c.uid && f.soulViews) return {...c, soulViews: f.soulViews};
+        }
+        for (const s of p.sets) if (s && s.uid === c.uid && s.soulViews) return {...c, soulViews: s.soulViews};
+    }
+    return c;
+}
 function renderZoom() {
-    const box = $('zoom'), pr = zoomPrompt(), c = pr ? pr.card : zoomCard;
+    const box = $('zoom'), pr = soulListOpen ? null : zoomPrompt(), c = withSoul(pr ? pr.card : zoomCard);
     if (!c) { box.classList.remove('active'); box.dataset.key = ''; document.body.classList.remove('zooming'); return; }
     const key = pr ? `p${pr.id}` : `c${c.uid}:${c.id}`;
     if (box.dataset.key === key) return;
@@ -474,11 +487,21 @@ function renderZoom() {
     const btns = $('zoom-buttons');
     btns.innerHTML = '';
     const add = (text, cls, fn) => { const b = document.createElement('button'); b.textContent = text; b.className = cls; b.onclick = fn; btns.append(b); };
+    // ソウルの中身を見るのは、このアップの「戻る」の横から。一覧を閉じたらこのアップに戻る
+    const addSoul = () => {
+        if (!c.soulViews || !c.soulViews.length) return;
+        add('ソウルを見る', '', () => {
+            soulListOpen = true;
+            closeZoom();
+            showList(`${c.name}のソウル`, c.soulViews, () => { soulListOpen = false; openZoom(c); });
+        });
+    };
     if (pr) pr.labels.forEach((l, i) => {
         const back = /キャンセル|もどる/.test(l);
         add(back ? '戻る' : l, back ? '' : 'primary', () => { zoomCard = null; answer(i); });
+        if (back) addSoul();
     });
-    else add('戻る', '', closeZoom);
+    else { add('戻る', '', closeZoom); addSoul(); }
     box.classList.add('active');
     document.body.classList.add('zooming');
 }
@@ -534,7 +557,7 @@ function showCardChoice(pr) {
     $('prompt').classList.add('active');
 }
 function hidePrompt() { const bar = $('prompt-bar'); bar.classList.remove('active'); bar.dataset.id = ''; }
-function showList(title, cards) {
+function showList(title, cards, back) {
     $('prompt-title').textContent = title;
     $('prompt-card').innerHTML = '';
     const box = $('prompt-buttons');
@@ -543,8 +566,8 @@ function showList(title, cards) {
     grid.className = 'list-grid';
     for (const c of cards) grid.append(cardEl(c));
     const close = document.createElement('button');
-    close.textContent = '閉じる';
-    close.onclick = () => $('prompt').classList.remove('active');
+    close.textContent = back ? '戻る' : '閉じる';
+    close.onclick = () => { $('prompt').classList.remove('active'); if (back) back(); };
     box.append(grid, close);
     $('prompt').classList.add('active');
 }
