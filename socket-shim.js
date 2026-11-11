@@ -1,4 +1,6 @@
 (function () {
+  // サーバーの無い配信版（GitHub Pages）。coach.js はこれを見て、指摘を GitHub の画面で開く
+  window.BF_STATIC = true;
   var SEAT = new URLSearchParams(location.search).get('seat');
   var handlers = {};
   var announced = false;

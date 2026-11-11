@@ -1,13 +1,72 @@
 // 「指摘」ボタンは、ふだんの対戦でも出る。押すと、その瞬間の盤面つきで GitHub の issue になる。
 // コーチモード（?coach=1）のときだけ、相手の手札も表で見せる。
 // 対戦中は止めない（直すのは次の試合から）。ただし、書いている間だけはボットの手を止める。
-(() => {
+//
+// パソコンのサーバー（server.js）で遊ぶときは、送るとその場で issue ができる。
+// 配信版（GitHub Pages）にはサーバーが無いので、代わりに GitHub の issue 作成画面を開く
+// （トークンを配信ページに置かないため、最後の「Create」だけ本人が押す）。
+
+// 画面の外（テスト）からも確かめられるよう、文面づくりだけをここにまとめる
+const coachLink = (() => {
+    const REPO = 'AkiAtMonash/PJ_buddyfight-app';
+    const KIND_LABEL = {rule: 'ルール修正', play: '打ち方'};
+    const short = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
+
+    // 盤面の要点だけを、あとから読める行にする（サーバーの tools/coach.js と同じ形）
+    const boardLines = s => {
+        if (!s || !s.players) return '（盤面の情報なし）';
+        const me = s.players[s.turn], foe = s.players[1 - s.turn];
+        const cards = p => ['left', 'center', 'right'].map(a => p.field && p.field[a]).filter(Boolean).map(c => c.name).join(' / ') || 'なし';
+        return [
+            `${s.turnNo}ターン目 ${s.phase}（手番: ${me.name}）`,
+            `${me.name}: ライフ${me.life} ゲージ${me.gauge} 手札${me.handCount} 場 ${cards(me)}`,
+            `${foe.name}: ライフ${foe.life} ゲージ${foe.gauge} 手札${foe.handCount} 場 ${cards(foe)}`,
+        ].join('\n');
+    };
+
+    // GitHub の「新しい issue」の画面の URL。タイトル・本文・ラベルを入れた状態で開く
+    const issueUrl = ({text, expect, kind, seat, state}) => {
+        const k = KIND_LABEL[kind] ? kind : 'rule';
+        const title = `[${KIND_LABEL[k]}] ${short(text, 40) || '(一言なし)'}`;
+        const body = [
+            `## 気づいたこと`,
+            text || '(なし)',
+            ``,
+            `## どう動くと思ったか`,
+            expect || '(なし)',
+            ``,
+            `## 場面`,
+            '```',
+            boardLines(state),
+            '```',
+            ``,
+            `- 種類: ${KIND_LABEL[k]}`,
+            `- 席: ${seat === 1 ? '2P' : '1P'}`,
+            `- 遊び方: スマホの配信版（GitHub Pages）`,
+            ``,
+            `_スマホの「指摘」ボタンから作成。_`,
+        ].join('\n');
+        return `https://github.com/${REPO}/issues/new?labels=${encodeURIComponent(KIND_LABEL[k])}`
+            + `&title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
+    };
+
+    return {boardLines, issueUrl};
+})();
+if (typeof module !== 'undefined') module.exports = coachLink;
+
+if (typeof document !== 'undefined') (() => {
     const isCoach = /[?&]coach=1/.test(location.search);
     // html にも付ける（盤面のカードの大きさは html の変数から決まるので、そこを上書きするため）
     if (isCoach) {
         document.body.classList.add('coach');
         document.documentElement.classList.add('coach');
     }
+
+    // サーバーが無い配信版かどうか。配信版の socket-shim.js が付ける印とホスト名で先に決める。
+    // 印が無い置き方でも、届くかどうかを読み込み時に確かめる
+    // （押した瞬間に待つと、新しいタブを開く合図が切れて画面が開かなくなるため、先に決める）
+    let staticSite = !!(window.BF_STATIC || /\.github\.io$/.test(location.hostname));
+    if (!staticSite) fetch('/coach/reports?limit=1').then(r => { staticSite = !r.ok; }).catch(() => { staticSite = true; });
 
     const fab = document.createElement('button');
     fab.id = 'coach-fab';
@@ -67,8 +126,9 @@
     let sent = 0;
 
     // 書いている間はボットの手を止める（止めないと盤面が変わり、パスや対抗の画面が入力欄の上に出る）。
-    // 止めたまま試合が進まなくならないよう、サーバー側は期限つき。開いている間だけ延ばす
-    const hold = sec => fetch('/coach/pause', {
+    // 止めたまま試合が進まなくならないよう、サーバー側は期限つき。開いている間だけ延ばす。
+    // 配信版は2席とも人が打つので、止める相手がいない
+    const hold = sec => staticSite ? Promise.resolve() : fetch('/coach/pause', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({sec}),
@@ -87,7 +147,7 @@
         panel.hidden = !panel.hidden;
         if (!panel.hidden) {
             setHold(true);
-            note('ボットの動きを止めています（閉じると再開）');
+            note(staticSite ? '送ると GitHub の画面が開くのだ' : 'ボットの動きを止めています（閉じると再開）');
             $('coach-text').focus();
         } else {
             setHold(false);
@@ -100,6 +160,15 @@
         const expect = $('coach-expect').value.trim();
         if (!text && !expect) return note('一言を書いてください');
         const seat = (typeof S !== 'undefined' && S && (S.me === 0 || S.me === 1)) ? S.me : 0;
+        // 配信版はサーバーが無いので、その場の盤面つきで GitHub の issue 作成画面を開く
+        if (staticSite) {
+            const url = coachLink.issueUrl({text, expect, kind: $('coach-kind').value, seat, state: typeof S === 'undefined' ? null : S});
+            if (!window.open(url, '_blank', 'noopener')) return note('GitHub の画面を開けませんでした');
+            $('coach-text').value = '';
+            $('coach-expect').value = '';
+            note('GitHub の画面を開いたのだ。「Create」を押すと記録されるのだ');
+            return;
+        }
         note('送信中…');
         try {
             const res = await fetch('/coach/comment', {
